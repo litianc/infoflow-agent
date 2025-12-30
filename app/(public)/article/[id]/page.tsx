@@ -8,9 +8,9 @@ import { Separator } from '@/components/ui/separator';
 import { getArticleById, getIndustriesForNav, getArticles } from '@/lib/db/queries';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
-import { ExternalLink, Calendar, BarChart3, Building2, Copy, ArrowLeft } from 'lucide-react';
+import { ExternalLink, Calendar, BarChart3, Building2, ArrowLeft } from 'lucide-react';
 import { Metadata } from 'next';
-import { ArticleCard } from '@/components/article';
+import { ArticleCard, CopyLinkButton } from '@/components/article';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -181,10 +181,7 @@ export default async function ArticlePage({ params }: PageProps) {
                   查看原文
                 </a>
               </Button>
-              <Button variant="outline" onClick={() => {}}>
-                <Copy className="h-4 w-4 mr-2" />
-                复制链接
-              </Button>
+              <CopyLinkButton url={article.url} />
             </div>
           </article>
 

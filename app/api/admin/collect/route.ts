@@ -148,6 +148,7 @@ export async function POST(request: NextRequest) {
               finalIndustryId = source.industryId;
             }
 
+            const scores = calculateScore(article, source.tier || 2);
             await db.insert(articles).values({
               id: articleId,
               sourceId: source.id,
@@ -157,7 +158,11 @@ export async function POST(request: NextRequest) {
               urlHash,
               publishDate: article.date || new Date().toISOString(),
               summary,
-              score: calculateScore(article, source.tier || 2),
+              score: scores.score,
+              scoreRelevance: scores.scoreRelevance,
+              scoreTimeliness: scores.scoreTimeliness,
+              scoreImpact: scores.scoreImpact,
+              scoreCredibility: scores.scoreCredibility,
               priority: '中',
               isFeatured: false,
               isDeleted: false,
@@ -376,31 +381,58 @@ function extractArticles(
   return articles;
 }
 
-// 计算文章评分（简单实现）
-function calculateScore(
-  article: { title: string },
-  tier: number
-): number {
-  let score = 50;
+// 计算文章评分（返回四维评分）
+interface ScoreResult {
+  score: number;
+  scoreRelevance: number;
+  scoreTimeliness: number;
+  scoreImpact: number;
+  scoreCredibility: number;
+}
 
-  // 根据 tier 调整基础分
-  if (tier === 1) score += 20;
-  else if (tier === 2) score += 10;
-
-  // 根据标题长度调整
-  if (article.title.length > 20) score += 5;
-  if (article.title.length > 40) score += 5;
-
-  // 包含关键词加分
-  const keywords = ['重大', '突破', '首次', '发布', '官方', '新政', '融资', '上市'];
-  for (const keyword of keywords) {
+function calculateScore(article: { title: string }, tier: number): ScoreResult {
+  // 相关性评分 (满分40): 基于标题长度和关键词
+  let relevance = 20;
+  if (article.title.length > 15) relevance += 5;
+  if (article.title.length > 30) relevance += 5;
+  const relevanceKeywords = ['数据中心', '云计算', 'AI', '芯片', '算力', '服务器', '网络'];
+  for (const keyword of relevanceKeywords) {
     if (article.title.includes(keyword)) {
-      score += 5;
+      relevance += 10;
       break;
     }
   }
+  relevance = Math.min(relevance, 40);
 
-  return Math.min(score, 100);
+  // 时效性评分 (满分25): 假设新采集的都是新文章
+  const timeliness = 20;
+
+  // 影响力评分 (满分20): 基于关键词
+  let impact = 10;
+  const impactKeywords = ['重大', '突破', '首次', '发布', '官方', '新政', '融资', '上市', '收购', '投资'];
+  for (const keyword of impactKeywords) {
+    if (article.title.includes(keyword)) {
+      impact += 10;
+      break;
+    }
+  }
+  impact = Math.min(impact, 20);
+
+  // 可信度评分 (满分15): 基于来源等级
+  let credibility = 8;
+  if (tier === 1) credibility = 15;
+  else if (tier === 2) credibility = 12;
+  else credibility = 8;
+
+  const total = relevance + timeliness + impact + credibility;
+
+  return {
+    score: Math.min(total, 100),
+    scoreRelevance: relevance,
+    scoreTimeliness: timeliness,
+    scoreImpact: impact,
+    scoreCredibility: credibility,
+  };
 }
 
 // GET /api/admin/collect - 获取采集日志
