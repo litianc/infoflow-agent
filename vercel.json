@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "pnpm build",
+  "installCommand": "pnpm install",
+  "framework": "nextjs",
+  "regions": ["hkg1"],
+  "crons": [
+    {
+      "path": "/api/cron/collect",
+      "schedule": "0 8 * * *"
+    }
+  ]
+}
