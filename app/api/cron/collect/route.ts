@@ -283,20 +283,50 @@ const INVALID_TITLE_PATTERNS = [
   /&[a-z]+;/i,  // 包含未解码的 HTML 实体
 ];
 
-// 日期提取正则
+// 从 URL 中提取日期（最可靠的方式）
+function extractDateFromUrl(url: string): string | null {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+
+  // 匹配 URL 中的日期格式: /2025-12-30/ 或 /2025/12/30/ 或 /20251230/
+  const urlPatterns = [
+    /\/(\d{4})[-/](\d{1,2})[-/](\d{1,2})\//,
+    /\/(\d{4})(\d{2})(\d{2})\//,
+    /[?&]date=(\d{4})[-]?(\d{2})[-]?(\d{2})/,
+  ];
+
+  for (const pattern of urlPatterns) {
+    const match = url.match(pattern);
+    if (match) {
+      const year = parseInt(match[1]);
+      const month = parseInt(match[2]);
+      const day = parseInt(match[3]);
+
+      if (month >= 1 && month <= 12 && day >= 1 && day <= 31 && year >= 2020 && year <= currentYear) {
+        const date = new Date(year, month - 1, day);
+        if (date <= now) {
+          return date.toISOString();
+        }
+      }
+    }
+  }
+  return null;
+}
+
+// 日期提取正则（用于 HTML 上下文，不含标题）
 const DATE_PATTERNS = [
   // 2024-12-30 或 2024/12/30
   /(\d{4})[-/](\d{1,2})[-/](\d{1,2})/,
-  // 12-30 或 12/30（当年）
-  /(?<!\d)(\d{1,2})[-/](\d{1,2})(?!\d)/,
   // 2024年12月30日
   /(\d{4})年(\d{1,2})月(\d{1,2})日/,
-  // 12月30日
+  // 12月30日（优先匹配中文格式）
   /(\d{1,2})月(\d{1,2})日/,
+  // 12-30 或 12/30（最后匹配，容易误判）
+  /(?<!\d)(\d{1,2})[-/](\d{1,2})(?!\d)/,
 ];
 
-// 从文本中提取日期
-function extractDate(text: string): string | null {
+// 从文本中提取日期（用于 HTML 上下文）
+function extractDateFromContext(text: string): string | null {
   const now = new Date();
   const currentYear = now.getFullYear();
 
@@ -311,16 +341,22 @@ function extractDate(text: string): string | null {
         month = parseInt(match[2]);
         day = parseInt(match[3]);
       } else if (match.length === 3) {
-        // 只有月日，使用当年
+        // 只有月日
         year = currentYear;
         month = parseInt(match[1]);
         day = parseInt(match[2]);
+
+        // 如果日期在未来，尝试使用去年
+        const testDate = new Date(year, month - 1, day);
+        if (testDate > now) {
+          year = currentYear - 1;
+        }
       } else {
         continue;
       }
 
       // 验证日期有效性
-      if (month >= 1 && month <= 12 && day >= 1 && day <= 31 && year >= 2020 && year <= currentYear + 1) {
+      if (month >= 1 && month <= 12 && day >= 1 && day <= 31 && year >= 2020 && year <= currentYear) {
         const date = new Date(year, month - 1, day);
         // 不能是未来日期
         if (date <= now) {
@@ -387,11 +423,18 @@ function extractArticles(
       continue;
     }
 
-    // 尝试从链接周围的 HTML 提取日期（前后 200 字符）
-    const contextStart = Math.max(0, matchIndex - 200);
-    const contextEnd = Math.min(html.length, matchIndex + match[0].length + 200);
-    const context = html.slice(contextStart, contextEnd).replace(/<[^>]*>/g, ' ');
-    const articleDate = extractDate(context);
+    // 优先从 URL 中提取日期（最可靠）
+    let articleDate = extractDateFromUrl(fullUrl);
+
+    // 如果 URL 中没有日期，尝试从链接周围的 HTML 提取（排除标题文本）
+    if (!articleDate) {
+      const contextStart = Math.max(0, matchIndex - 200);
+      const contextEnd = Math.min(html.length, matchIndex + match[0].length + 200);
+      let context = html.slice(contextStart, contextEnd).replace(/<[^>]*>/g, ' ');
+      // 从上下文中移除标题文本，避免从标题中提取日期
+      context = context.replace(text, '');
+      articleDate = extractDateFromContext(context);
+    }
 
     articles.push({
       title: text,
