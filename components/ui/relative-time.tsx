@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { formatDistanceToNow, format } from 'date-fns';
+import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 
 interface RelativeTimeProps {
@@ -10,27 +10,26 @@ interface RelativeTimeProps {
 }
 
 export function RelativeTime({ date, fallback = '未知时间' }: RelativeTimeProps) {
-  const [mounted, setMounted] = useState(false);
+  const [displayText, setDisplayText] = useState<string | null>(null);
 
   useEffect(() => {
-    setMounted(true);
-  }, []);
+    if (date) {
+      const formattedDate = formatDistanceToNow(new Date(date), {
+        addSuffix: true,
+        locale: zhCN,
+      });
+      setDisplayText(formattedDate);
+    }
+  }, [date]);
 
   if (!date) {
     return <span>{fallback}</span>;
   }
 
-  // Server-side and initial client render: show static date format
-  if (!mounted) {
-    const dateObj = new Date(date);
-    return <span>{format(dateObj, 'MM-dd', { locale: zhCN })}</span>;
-  }
-
-  // Client-side after mount: show relative time
-  const formattedDate = formatDistanceToNow(new Date(date), {
-    addSuffix: true,
-    locale: zhCN,
-  });
-
-  return <span>{formattedDate}</span>;
+  // Use suppressHydrationWarning since content intentionally differs
+  return (
+    <span suppressHydrationWarning>
+      {displayText || fallback}
+    </span>
+  );
 }

@@ -92,7 +92,9 @@ export default async function ArticlePage({ params }: PageProps) {
                 {article.publishDate && (
                   <div className="flex items-center">
                     <Calendar className="h-4 w-4 mr-1" />
-                    {format(new Date(article.publishDate), 'yyyy年MM月dd日', { locale: zhCN })}
+                    <span suppressHydrationWarning>
+                      {format(new Date(article.publishDate), 'yyyy年MM月dd日', { locale: zhCN })}
+                    </span>
                   </div>
                 )}
                 {article.industry && (
