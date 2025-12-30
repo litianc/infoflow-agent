@@ -131,6 +131,47 @@ const INVALID_TITLE_PATTERNS = [
   /&[a-z]+;/i,  // 包含未解码的 HTML 实体
 ];
 
+// 日期提取正则
+const DATE_PATTERNS = [
+  /(\d{4})[-/](\d{1,2})[-/](\d{1,2})/,
+  /(\d{1,2})[-/](\d{1,2})/,
+  /(\d{4})年(\d{1,2})月(\d{1,2})日/,
+  /(\d{1,2})月(\d{1,2})日/,
+];
+
+// 从文本中提取日期
+function extractDate(text) {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+
+  for (const pattern of DATE_PATTERNS) {
+    const match = text.match(pattern);
+    if (match) {
+      let year, month, day;
+
+      if (match.length === 4) {
+        year = parseInt(match[1]);
+        month = parseInt(match[2]);
+        day = parseInt(match[3]);
+      } else if (match.length === 3) {
+        year = currentYear;
+        month = parseInt(match[1]);
+        day = parseInt(match[2]);
+      } else {
+        continue;
+      }
+
+      if (month >= 1 && month <= 12 && day >= 1 && day <= 31 && year >= 2020 && year <= currentYear + 1) {
+        const date = new Date(year, month - 1, day);
+        if (date <= now) {
+          return date.toISOString();
+        }
+      }
+    }
+  }
+  return null;
+}
+
 // Extract articles function
 function extractArticles(html, baseUrl, limit = 15) {
   const articles = [];
@@ -145,6 +186,7 @@ function extractArticles(html, baseUrl, limit = 15) {
   }
 
   while ((match = linkRegex.exec(html)) !== null && articles.length < limit) {
+    const matchIndex = match.index;
     const href = match[1];
     let text = match[2].replace(/<[^>]*>/g, '').trim();
 
@@ -184,7 +226,13 @@ function extractArticles(html, baseUrl, limit = 15) {
       continue;
     }
 
-    articles.push({ title: text, url: fullUrl });
+    // 尝试从链接周围的 HTML 提取日期
+    const contextStart = Math.max(0, matchIndex - 200);
+    const contextEnd = Math.min(html.length, matchIndex + match[0].length + 200);
+    const context = html.slice(contextStart, contextEnd).replace(/<[^>]*>/g, ' ');
+    const articleDate = extractDate(context);
+
+    articles.push({ title: text, url: fullUrl, date: articleDate });
   }
 
   return articles;
@@ -282,11 +330,12 @@ for (const source of sources) {
       }
 
       const score = calculateScore(article.title, source.tier || 2);
+      const publishDate = article.date || new Date().toISOString();
 
       await db.execute({
         sql: `INSERT INTO articles (id, source_id, industry_id, title, url, url_hash, summary, publish_date, score, priority, is_featured, is_deleted, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, '中', 0, 0, datetime('now'), datetime('now'))`,
-        args: [crypto.randomUUID(), source.id, industryId, article.title, article.url, urlHash, summary, score]
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '中', 0, 0, datetime('now'), datetime('now'))`,
+        args: [crypto.randomUUID(), source.id, industryId, article.title, article.url, urlHash, summary, publishDate, score]
       });
       saved++;
 
