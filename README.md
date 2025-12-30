@@ -11,6 +11,7 @@
 - **后台管理**: 数据源管理、内容管理、采集日志、系统设置
 - **深色模式**: 支持深色/浅色主题切换
 - **AI摘要** (可选): 集成 LLM 生成文章摘要
+- **CI/CD**: 支持 GitHub Actions 自动部署
 
 ## 技术栈
 
@@ -22,7 +23,30 @@
 
 ---
 
-## Ubuntu 服务器部署指南
+## 快速开始（Ubuntu 服务器）
+
+### 一键部署
+
+```bash
+# 1. 克隆项目
+git clone https://github.com/litianc/infoflow-agent.git
+cd infoflow-agent
+
+# 2. 运行初始化脚本（自动安装依赖、配置环境、启动服务）
+bash scripts/setup-ubuntu.sh
+```
+
+脚本会自动完成：
+- ✅ 安装 Node.js 20.x（如未安装）
+- ✅ 安装 PM2 进程管理器
+- ✅ 安装项目依赖
+- ✅ 引导配置环境变量
+- ✅ 初始化数据库
+- ✅ 构建并启动服务
+
+---
+
+## 手动部署（Ubuntu 服务器）
 
 ### 系统要求
 
@@ -337,6 +361,43 @@ npm run test:ui
 
 - 前台首页: `http://your-domain.com/`
 - 后台管理: `http://your-domain.com/admin`
+
+## CI/CD 自动部署
+
+项目已配置 GitHub Actions，推送代码到 main 分支时自动部署到服务器。
+
+### 配置步骤
+
+**1. 在服务器上生成部署密钥**
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/deploy_key -N ""
+cat ~/.ssh/deploy_key.pub >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+cat ~/.ssh/deploy_key  # 复制私钥内容
+```
+
+**2. 配置 GitHub Secrets**
+
+进入仓库 Settings → Secrets and variables → Actions，添加：
+
+| Name | Value |
+|------|-------|
+| `SERVER_HOST` | 服务器公网 IP |
+| `SERVER_USER` | SSH 用户名（如 `root`） |
+| `SERVER_PORT` | SSH 端口（通常 `22`） |
+| `SSH_PRIVATE_KEY` | 上一步的私钥内容 |
+
+**3. 完成**
+
+之后每次 `git push` 到 main 分支，GitHub Actions 会自动：
+- 连接服务器
+- 拉取最新代码
+- 安装依赖
+- 构建项目
+- 重启服务
+
+查看部署日志：https://github.com/litianc/infoflow-agent/actions
 
 ## 常见问题
 
