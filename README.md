@@ -14,7 +14,7 @@
 
 ## 技术栈
 
-- **框架**: Next.js 15 (App Router)
+- **框架**: Next.js 15  (App Router)
 - **UI**: Tailwind CSS + shadcn/ui
 - **数据库**: Turso (libSQL/SQLite)
 - **ORM**: Drizzle ORM
