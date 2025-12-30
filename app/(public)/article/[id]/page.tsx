@@ -102,7 +102,7 @@ export default async function ArticlePage({ params }: PageProps) {
                   >
                     <Badge
                       variant="outline"
-                      style={{ borderColor: article.industry.color, color: article.industry.color }}
+                      style={article.industry.color ? { borderColor: article.industry.color, color: article.industry.color } : undefined}
                     >
                       {article.industry.icon} {article.industry.name}
                     </Badge>

@@ -9,10 +9,10 @@ import { Logo } from '@/components/Logo';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-interface IndustryNav {
+export interface IndustryNav {
   name: string;
   slug: string;
-  color: string;
+  color: string | null;
 }
 
 interface HeaderProps {

@@ -1,8 +1,7 @@
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { formatDistanceToNow } from 'date-fns';
-import { zhCN } from 'date-fns/locale';
+import { RelativeTime } from '@/components/ui/relative-time';
 
 interface ArticleCardProps {
   id: string;
@@ -37,13 +36,6 @@ export function ArticleCard({
     '中': 'secondary',
     '低': 'outline',
   }[priority] || 'secondary';
-
-  const formattedDate = publishDate
-    ? formatDistanceToNow(new Date(publishDate), {
-        addSuffix: true,
-        locale: zhCN,
-      })
-    : '未知时间';
 
   return (
     <Card className="hover:shadow-md transition-shadow">
@@ -82,7 +74,7 @@ export function ArticleCard({
             )}
           </div>
           <div className="flex items-center space-x-2">
-            <span>{formattedDate}</span>
+            <RelativeTime date={publishDate} />
             <span>·</span>
             <span>评分 {score}</span>
           </div>

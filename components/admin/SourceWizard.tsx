@@ -170,10 +170,9 @@ export function SourceWizard({ industries }: SourceWizardProps) {
       <div className="flex items-center justify-center space-x-4">
         <div className={`flex items-center ${step === 'url' ? 'text-primary' : 'text-muted-foreground'}`}>
           <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${
-            step === 'url' ? 'border-primary bg-primary text-primary-foreground' :
-            step !== 'url' ? 'border-green-500 bg-green-500 text-white' : 'border-muted'
+            step === 'url' ? 'border-primary bg-primary text-primary-foreground' : 'border-green-500 bg-green-500 text-white'
           }`}>
-            {step !== 'url' ? <CheckCircle2 className="h-4 w-4" /> : '1'}
+            {step === 'url' ? '1' : <CheckCircle2 className="h-4 w-4" />}
           </div>
           <span className="ml-2 text-sm font-medium">输入URL</span>
         </div>

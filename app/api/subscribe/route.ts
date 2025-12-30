@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 检查邀请码使用次数
-    if (code.maxUsage && code.maxUsage > 0 && code.usageCount >= code.maxUsage) {
+    if (code.maxUsage && code.maxUsage > 0 && (code.usageCount ?? 0) >= code.maxUsage) {
       return NextResponse.json(
         { success: false, error: '邀请码已达使用上限' },
         { status: 400 }

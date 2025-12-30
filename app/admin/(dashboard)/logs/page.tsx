@@ -12,8 +12,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { CheckCircle2, XCircle, Clock } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
-import { zhCN } from 'date-fns/locale';
+import { RelativeTime } from '@/components/ui/relative-time';
 
 async function getCollectLogs(limit = 50) {
   const logs = await db
@@ -151,12 +150,7 @@ export default async function LogsPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {startTime
-                          ? formatDistanceToNow(startTime, {
-                              addSuffix: true,
-                              locale: zhCN,
-                            })
-                          : '-'}
+                        <RelativeTime date={item.log.startedAt} fallback="-" />
                       </TableCell>
                       <TableCell className="text-sm">
                         {duration !== null ? (

@@ -10,8 +10,7 @@ import {
   CheckCircle2,
   XCircle,
 } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
-import { zhCN } from 'date-fns/locale';
+import { RelativeTime } from '@/components/ui/relative-time';
 
 export default async function AdminDashboardPage() {
   const dashboard = await getDashboardData();
@@ -122,12 +121,7 @@ export default async function AdminDashboardPage() {
                       <div>
                         <div className="text-sm font-medium">{log.sourceName}</div>
                         <div className="text-xs text-muted-foreground">
-                          {log.finishedAt
-                            ? formatDistanceToNow(new Date(log.finishedAt), {
-                                addSuffix: true,
-                                locale: zhCN,
-                              })
-                            : '未知'}
+                          <RelativeTime date={log.finishedAt} fallback="未知" />
                         </div>
                       </div>
                     </div>
