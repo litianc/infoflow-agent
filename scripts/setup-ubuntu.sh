@@ -23,15 +23,24 @@ else
     SUDO="sudo"
 fi
 
+# 步骤 0: 配置国内镜像源
+echo -e "${YELLOW}[0/6] 配置国内镜像源...${NC}"
+npm config set registry https://registry.npmmirror.com
+echo -e "${GREEN}✓ npm 已切换到淘宝镜像 (npmmirror.com)${NC}"
+
 # 步骤 1: 检查并安装 Node.js
+echo ""
 echo -e "${YELLOW}[1/6] 检查 Node.js...${NC}"
 if command -v node &> /dev/null; then
     NODE_VERSION=$(node -v)
     echo -e "${GREEN}✓ Node.js 已安装: $NODE_VERSION${NC}"
 else
     echo "正在安装 Node.js 20.x..."
+    # 使用国内镜像安装 Node.js
     curl -fsSL https://deb.nodesource.com/setup_20.x | $SUDO bash -
     $SUDO apt install -y nodejs
+    # 安装后配置 npm 镜像
+    npm config set registry https://registry.npmmirror.com
     echo -e "${GREEN}✓ Node.js 安装完成${NC}"
 fi
 
@@ -41,15 +50,15 @@ echo -e "${YELLOW}[2/6] 检查 PM2...${NC}"
 if command -v pm2 &> /dev/null; then
     echo -e "${GREEN}✓ PM2 已安装${NC}"
 else
-    echo "正在安装 PM2..."
-    $SUDO npm install -g pm2
+    echo "正在安装 PM2（使用淘宝镜像）..."
+    $SUDO npm install -g pm2 --registry=https://registry.npmmirror.com
     echo -e "${GREEN}✓ PM2 安装完成${NC}"
 fi
 
 # 步骤 3: 安装项目依赖
 echo ""
-echo -e "${YELLOW}[3/6] 安装项目依赖...${NC}"
-npm install
+echo -e "${YELLOW}[3/6] 安装项目依赖（使用淘宝镜像）...${NC}"
+npm install --registry=https://registry.npmmirror.com
 echo -e "${GREEN}✓ 依赖安装完成${NC}"
 
 # 步骤 4: 配置环境变量
