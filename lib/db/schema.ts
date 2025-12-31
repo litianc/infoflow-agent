@@ -132,7 +132,8 @@ export const newsletterLogs = sqliteTable('newsletter_logs', {
 
 // 类型定义
 export interface SourceConfig {
-  scraperType?: 'generic' | 'custom';
+  scraperType?: 'generic' | 'custom' | 'rss';
+  rssUrl?: string;  // RSS Feed URL，优先使用
   listUrl?: string;
   encoding?: string;
   articleContainer?: string;

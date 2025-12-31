@@ -79,24 +79,32 @@ export async function GET(request: NextRequest) {
       try {
         console.log(`[Cron] Collecting from: ${source.name}`);
 
-        // 获取页面内容
-        const response = await fetch(source.url, {
-          headers: {
-            'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9',
-          },
-          signal: AbortSignal.timeout(30000),
-        });
+        // 获取数据源配置
+        const sourceConfig = source.config as { rssUrl?: string; dateSelector?: string } | null;
+        let extractedArticles: { title: string; url: string; date: string | null }[];
 
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
+        // 优先使用 RSS Feed
+        if (sourceConfig?.rssUrl) {
+          console.log(`[Cron] Using RSS: ${sourceConfig.rssUrl}`);
+          extractedArticles = await parseRSSFeed(sourceConfig.rssUrl, 20);
+        } else {
+          // 回退到 HTML 解析
+          const response = await fetch(source.url, {
+            headers: {
+              'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+              Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9',
+            },
+            signal: AbortSignal.timeout(30000),
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+
+          const html = await response.text();
+          extractedArticles = extractArticles(html, source.url, 20);
         }
-
-        const html = await response.text();
-
-        // 解析文章
-        const extractedArticles = extractArticles(html, source.url, 20);
 
         // 保存文章到数据库
         for (const article of extractedArticles) {
@@ -160,8 +168,6 @@ export async function GET(request: NextRequest) {
             // 日期提取：如果列表页没有日期，尝试从文章页获取
             let publishDate = article.date;
             if (!publishDate) {
-              // 获取数据源配置中的自定义日期选择器
-              const sourceConfig = source.config as { dateSelector?: string } | null;
               const customSelector = sourceConfig?.dateSelector;
               publishDate = await fetchArticleDate(article.url, customSelector);
             }
@@ -281,6 +287,104 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+// RSS Feed 解析函数
+async function parseRSSFeed(
+  rssUrl: string,
+  limit: number
+): Promise<{ title: string; url: string; date: string | null }[]> {
+  const articles: { title: string; url: string; date: string | null }[] = [];
+
+  try {
+    const response = await fetch(rssUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; NewsAggregator/1.0)',
+        Accept: 'application/rss+xml, application/xml, text/xml',
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const xml = await response.text();
+
+    // 解析 RSS 2.0 格式 (<item>)
+    const rssItems = xml.matchAll(/<item>([\s\S]*?)<\/item>/gi);
+    for (const match of rssItems) {
+      if (articles.length >= limit) break;
+      const item = match[1];
+
+      // 提取标题
+      const titleMatch = item.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/i);
+      let title = titleMatch ? titleMatch[1].trim() : '';
+      title = title.replace(/<!\[CDATA\[|\]\]>/g, '').trim();
+      if (!title || title.length < 5) continue;
+
+      // 提取链接
+      const linkMatch = item.match(/<link>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/link>/i);
+      let url = linkMatch ? linkMatch[1].trim() : '';
+      url = url.replace(/<!\[CDATA\[|\]\]>/g, '').trim();
+      if (!url || !url.startsWith('http')) continue;
+
+      // 提取日期
+      let date: string | null = null;
+      const pubDateMatch = item.match(/<pubDate>([\s\S]*?)<\/pubDate>/i);
+      if (pubDateMatch) {
+        const parsedDate = new Date(pubDateMatch[1].trim());
+        if (!isNaN(parsedDate.getTime())) {
+          date = parsedDate.toISOString();
+        }
+      }
+
+      // 去重
+      if (articles.some(a => a.url === url)) continue;
+
+      articles.push({ title, url, date });
+    }
+
+    // 如果没有 RSS 2.0 格式，尝试 Atom 格式 (<entry>)
+    if (articles.length === 0) {
+      const atomEntries = xml.matchAll(/<entry>([\s\S]*?)<\/entry>/gi);
+      for (const match of atomEntries) {
+        if (articles.length >= limit) break;
+        const entry = match[1];
+
+        // 提取标题
+        const titleMatch = entry.match(/<title[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/i);
+        let title = titleMatch ? titleMatch[1].trim() : '';
+        title = title.replace(/<!\[CDATA\[|\]\]>/g, '').trim();
+        if (!title || title.length < 5) continue;
+
+        // 提取链接 (Atom 使用 <link href="...">)
+        const linkMatch = entry.match(/<link[^>]*href=["']([^"']+)["'][^>]*>/i);
+        const url = linkMatch ? linkMatch[1].trim() : '';
+        if (!url || !url.startsWith('http')) continue;
+
+        // 提取日期
+        let date: string | null = null;
+        const publishedMatch = entry.match(/<published>([\s\S]*?)<\/published>/i) ||
+                               entry.match(/<updated>([\s\S]*?)<\/updated>/i);
+        if (publishedMatch) {
+          const parsedDate = new Date(publishedMatch[1].trim());
+          if (!isNaN(parsedDate.getTime())) {
+            date = parsedDate.toISOString();
+          }
+        }
+
+        // 去重
+        if (articles.some(a => a.url === url)) continue;
+
+        articles.push({ title, url, date });
+      }
+    }
+  } catch (error) {
+    console.error(`[RSS] Failed to parse ${rssUrl}:`, error);
+  }
+
+  return articles;
 }
 
 // 无意义标题过滤规则

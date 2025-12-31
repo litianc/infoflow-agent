@@ -27,6 +27,68 @@ const db = createClient({ url: process.env.TURSO_DATABASE_URL || 'file:./local.d
 
 console.log(`\n=== 测试采集 (每数据源 ${LIMIT} 篇) ===\n`);
 
+// RSS Feed 解析
+async function parseRSSFeed(rssUrl, limit) {
+  const response = await fetch(rssUrl, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; RSSReader/1.0)' },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!response.ok) throw new Error(`RSS fetch failed: ${response.status}`);
+
+  const xml = await response.text();
+  const articles = [];
+
+  // RSS 2.0 格式
+  const items = xml.match(/<item>([\s\S]*?)<\/item>/gi) || [];
+  for (const item of items.slice(0, limit)) {
+    const titleMatch = item.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/i);
+    const linkMatch = item.match(/<link>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/link>/i) ||
+                      item.match(/<link[^>]*href=["']([^"']+)["']/i);
+    const dateMatch = item.match(/<pubDate>([\s\S]*?)<\/pubDate>/i) ||
+                      item.match(/<dc:date>([\s\S]*?)<\/dc:date>/i);
+
+    if (titleMatch && linkMatch) {
+      const title = titleMatch[1].replace(/<!\[CDATA\[|\]\]>/g, '').trim();
+      const url = (linkMatch[1] || linkMatch[0]).replace(/<!\[CDATA\[|\]\]>/g, '').trim();
+      let date = null;
+      if (dateMatch) {
+        const d = new Date(dateMatch[1].trim());
+        if (!isNaN(d.getTime())) date = d.toISOString();
+      }
+      if (title && url && url.startsWith('http')) {
+        articles.push({ title, url, date });
+      }
+    }
+  }
+
+  // Atom 格式
+  if (articles.length === 0) {
+    const entries = xml.match(/<entry>([\s\S]*?)<\/entry>/gi) || [];
+    for (const entry of entries.slice(0, limit)) {
+      const titleMatch = entry.match(/<title[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/i);
+      const linkMatch = entry.match(/<link[^>]*href=["']([^"']+)["'][^>]*rel=["']alternate["']/i) ||
+                        entry.match(/<link[^>]*href=["']([^"']+)["']/i);
+      const dateMatch = entry.match(/<published>([\s\S]*?)<\/published>/i) ||
+                        entry.match(/<updated>([\s\S]*?)<\/updated>/i);
+
+      if (titleMatch && linkMatch) {
+        const title = titleMatch[1].replace(/<!\[CDATA\[|\]\]>/g, '').trim();
+        const url = linkMatch[1].trim();
+        let date = null;
+        if (dateMatch) {
+          const d = new Date(dateMatch[1].trim());
+          if (!isNaN(d.getTime())) date = d.toISOString();
+        }
+        if (title && url && url.startsWith('http')) {
+          articles.push({ title, url, date });
+        }
+      }
+    }
+  }
+
+  return articles;
+}
+
 // 从 URL 中提取日期
 function extractDateFromUrl(url) {
   const now = new Date();
@@ -394,14 +456,39 @@ let totalFetched = 0; // 通过方案四获取日期的数量
 for (const source of sources) {
   process.stdout.write(`${source.name}... `);
   try {
-    const response = await fetch(source.url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!response.ok) { console.log(`❌ HTTP ${response.status}`); continue; }
+    // 解析数据源配置
+    let config = {};
+    try {
+      config = typeof source.config === 'string' ? JSON.parse(source.config) : (source.config || {});
+    } catch { config = {}; }
 
-    const html = await response.text();
-    const articles = extractArticles(html, source.url, LIMIT);
+    let articles;
+    let useRSS = false;
+
+    // 优先使用 RSS Feed
+    if (config.rssUrl) {
+      try {
+        articles = await parseRSSFeed(config.rssUrl, LIMIT);
+        useRSS = true;
+        process.stdout.write('[RSS] ');
+      } catch (rssError) {
+        process.stdout.write(`[RSS失败:${rssError.message.substring(0, 20)}] `);
+        articles = null;
+      }
+    }
+
+    // 回退到 HTML 解析
+    if (!articles || articles.length === 0) {
+      const response = await fetch(source.url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!response.ok) { console.log(`❌ HTTP ${response.status}`); continue; }
+
+      const html = await response.text();
+      articles = extractArticles(html, source.url, LIMIT);
+      useRSS = false;
+    }
 
     if (articles.length === 0) { console.log('⚠️ 无文章'); continue; }
 
@@ -413,13 +500,8 @@ for (const source of sources) {
 
       // 方案四：如果没有日期，尝试从文章页获取
       let publishDate = article.date;
-      if (!publishDate) {
+      if (!publishDate && !useRSS) {
         process.stdout.write('📄');
-        // 解析数据源配置，获取自定义日期选择器
-        let config = {};
-        try {
-          config = typeof source.config === 'string' ? JSON.parse(source.config) : (source.config || {});
-        } catch { config = {}; }
         const customSelector = config.dateSelector || null;
         publishDate = await fetchArticleDate(article.url, customSelector);
         if (publishDate) fetched++;
