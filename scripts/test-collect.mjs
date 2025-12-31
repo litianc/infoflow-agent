@@ -284,6 +284,30 @@ async function fetchArticleDate(url, customSelector = null) {
   }
 }
 
+// 无意义标题过滤规则
+const INVALID_TITLE_PATTERNS = [
+  /^(查看|点击|了解|阅读|更多|详情|详细|进入|返回|下载|登录|注册|订阅)/,
+  /^(首页|关于|联系|帮助|搜索|设置|个人中心)/,
+  /(用户协议|服务协议|隐私政策|隐私声明|法律声明|免责声明|版权声明|使用条款)/,
+  /(ICP备|网安备|京ICP|沪ICP|粤ICP|浙ICP|苏ICP|鲁ICP)/i,
+  /^[京沪粤浙苏鲁川渝闽湘鄂皖赣]?(公网安备|ICP)/,
+  /^(广告|推广|赞助|合作伙伴|友情链接)/,
+  /^(加入我们|联系我们|关于我们|公司介绍|招聘信息|诚聘英才)/,
+  /^(意见反馈|投诉建议|客服中心|帮助中心)/,
+];
+
+// 无效URL路径模式
+const INVALID_URL_PATTERNS = [
+  /\/(usercenter|user[-_]?center|member|account|login|register|signup|signin)\//i,
+  /\/(agreement|privacy|terms|policy|legal|disclaimer)\b/i,
+  /\/(ad|ads|advert|banner|sponsor|promotion)\//i,
+  /\/(download|upload|attachment|file)\//i,
+  /\/(about|contact|help|faq|feedback|sitemap)\b/i,
+];
+
+// 外部无效域名
+const INVALID_DOMAINS = ['beian.miit.gov.cn', 'beian.gov.cn', 'baidu.com/s', 'google.com', 'cnzz.com', 'umeng.com'];
+
 // 提取文章
 function extractArticles(html, baseUrl, limit) {
   const articles = [];
@@ -300,11 +324,23 @@ function extractArticles(html, baseUrl, limit) {
       .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(code)).trim();
 
     if (text.length < 10 || text.length > 200 || href.startsWith('#') || href.startsWith('javascript:')) continue;
-    if (/^(查看|点击|了解|阅读|更多|详情|首页|关于)/.test(text)) continue;
+
+    // 过滤无意义标题
+    if (INVALID_TITLE_PATTERNS.some(p => p.test(text))) continue;
 
     let fullUrl = href;
     if (href.startsWith('/')) fullUrl = baseUrlObj.origin + href;
     else if (!href.startsWith('http')) fullUrl = baseUrlObj.origin + '/' + href;
+
+    // 过滤外部无效域名和非同源链接
+    try {
+      const urlObj = new URL(fullUrl);
+      if (INVALID_DOMAINS.some(d => urlObj.hostname.includes(d) || urlObj.href.includes(d))) continue;
+      if (urlObj.hostname !== baseUrlObj.hostname && !urlObj.hostname.endsWith('.' + baseUrlObj.hostname)) continue;
+    } catch { continue; }
+
+    // 过滤无效URL路径
+    if (INVALID_URL_PATTERNS.some(p => p.test(fullUrl))) continue;
 
     if (articles.some(a => a.url === fullUrl)) continue;
 

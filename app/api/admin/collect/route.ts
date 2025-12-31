@@ -274,6 +274,40 @@ const INVALID_TITLE_PATTERNS = [
   /^[\s\d\-_./]+$/,  // 纯数字、符号
   /^[<>《》【】\[\]「」『』]+.*[<>《》【】\[\]「」『』]+$/,  // 被特殊符号包裹
   /&[a-z]+;/i,  // 包含未解码的 HTML 实体
+  // 用户协议、隐私政策、法律声明
+  /(用户协议|服务协议|隐私政策|隐私声明|法律声明|免责声明|版权声明|使用条款)/,
+  // 备案信息
+  /(ICP备|网安备|京ICP|沪ICP|粤ICP|浙ICP|苏ICP|鲁ICP)/i,
+  /^[京沪粤浙苏鲁川渝闽湘鄂皖赣]?(公网安备|ICP)/,
+  // 广告、推广
+  /^(广告|推广|赞助|合作伙伴|友情链接)/,
+  // 导航、功能性链接
+  /^(加入我们|联系我们|关于我们|公司介绍|招聘信息|诚聘英才)/,
+  /^(意见反馈|投诉建议|客服中心|帮助中心)/,
+];
+
+// 无效URL路径模式
+const INVALID_URL_PATTERNS = [
+  // 用户中心、登录注册
+  /\/(usercenter|user[-_]?center|member|account|login|register|signup|signin)\//i,
+  /\/(agreement|privacy|terms|policy|legal|disclaimer)\b/i,
+  // 广告、推广
+  /\/(ad|ads|advert|banner|sponsor|promotion)\//i,
+  // 静态资源、下载
+  /\/(download|upload|attachment|file)\//i,
+  // 特殊页面
+  /\/(about|contact|help|faq|feedback|sitemap)\b/i,
+];
+
+// 外部无效域名（备案、统计等）
+const INVALID_DOMAINS = [
+  'beian.miit.gov.cn',
+  'beian.gov.cn',
+  'baidu.com/s',  // 百度搜索
+  'google.com',
+  'analytics.',
+  'cnzz.com',
+  'umeng.com',
 ];
 
 // 从 URL 中提取日期（最可靠的方式）
@@ -600,6 +634,25 @@ function extractArticles(
       fullUrl = baseUrlObj.origin + href;
     } else if (!href.startsWith('http')) {
       fullUrl = baseUrlObj.origin + '/' + href;
+    }
+
+    // 过滤外部无效域名
+    try {
+      const urlObj = new URL(fullUrl);
+      if (INVALID_DOMAINS.some(domain => urlObj.hostname.includes(domain) || urlObj.href.includes(domain))) {
+        continue;
+      }
+      // 过滤非同源链接（外部链接）
+      if (urlObj.hostname !== baseUrlObj.hostname && !urlObj.hostname.endsWith('.' + baseUrlObj.hostname)) {
+        continue;
+      }
+    } catch {
+      continue; // 无效URL
+    }
+
+    // 过滤无效URL路径
+    if (INVALID_URL_PATTERNS.some(pattern => pattern.test(fullUrl))) {
+      continue;
     }
 
     // 去重
