@@ -31,11 +31,14 @@ console.log(`\n=== 测试采集 (每数据源 ${LIMIT} 篇) ===\n`);
 function extractDateFromUrl(url) {
   const now = new Date();
   const currentYear = now.getFullYear();
-  const urlPatterns = [
+
+  // 完整日期格式
+  const fullDatePatterns = [
     /\/(\d{4})[-/](\d{1,2})[-/](\d{1,2})\//,  // /2025-12-30/ or /2025/12/30/
     /\/(\d{4})(\d{2})(\d{2})\//,               // /20251230/
+    /[-_](\d{4})(\d{2})(\d{2})[-_\.]/,         // -20251230- or _20251230.
   ];
-  for (const pattern of urlPatterns) {
+  for (const pattern of fullDatePatterns) {
     const match = url.match(pattern);
     if (match) {
       const year = parseInt(match[1]);
@@ -47,6 +50,24 @@ function extractDateFromUrl(url) {
       }
     }
   }
+
+  // YYYYMM 格式（只有年月，使用当月1日）- 如投资界 /202512/
+  const yearMonthPatterns = [
+    /\/(\d{4})(\d{2})\//,  // /202512/
+    /\/(\d{4})\/(\d{1,2})\//,  // /2025/12/
+  ];
+  for (const pattern of yearMonthPatterns) {
+    const match = url.match(pattern);
+    if (match) {
+      const year = parseInt(match[1]);
+      const month = parseInt(match[2]);
+      if (month >= 1 && month <= 12 && year >= 2020 && year <= currentYear) {
+        const date = new Date(year, month - 1, 1);
+        if (date <= now) return date.toISOString();
+      }
+    }
+  }
+
   return null;
 }
 
@@ -54,18 +75,33 @@ function extractDateFromUrl(url) {
 function parseRelativeTime(text) {
   const now = new Date();
 
+  // 提取时间部分（如 08:30）
+  const timeMatch = text.match(/(\d{1,2}):(\d{2})/);
+  const setTime = (date) => {
+    if (timeMatch) {
+      date.setHours(parseInt(timeMatch[1]), parseInt(timeMatch[2]), 0, 0);
+    }
+    return date.toISOString();
+  };
+
+  // 今天 08:30
+  if (/今天/.test(text)) {
+    const date = new Date(now);
+    return setTime(date);
+  }
+
   // 昨天 11:47
   if (/昨天/.test(text)) {
     const date = new Date(now);
     date.setDate(date.getDate() - 1);
-    return date.toISOString();
+    return setTime(date);
   }
 
   // 前天 17:08
   if (/前天/.test(text)) {
     const date = new Date(now);
     date.setDate(date.getDate() - 2);
-    return date.toISOString();
+    return setTime(date);
   }
 
   // X天前
@@ -73,7 +109,7 @@ function parseRelativeTime(text) {
   if (daysAgo) {
     const date = new Date(now);
     date.setDate(date.getDate() - parseInt(daysAgo[1]));
-    return date.toISOString();
+    return setTime(date);
   }
 
   // X小时前
@@ -87,11 +123,13 @@ function parseRelativeTime(text) {
   // X分钟前
   const minutesAgo = text.match(/(\d+)\s*分钟前/);
   if (minutesAgo) {
-    return now.toISOString(); // 当天
+    const date = new Date(now);
+    date.setMinutes(date.getMinutes() - parseInt(minutesAgo[1]));
+    return date.toISOString();
   }
 
-  // 刚刚、今天
-  if (/刚刚|今天/.test(text)) {
+  // 刚刚
+  if (/刚刚/.test(text)) {
     return now.toISOString();
   }
 
@@ -133,7 +171,8 @@ function extractDateFromContext(text) {
 }
 
 // 方案四：从文章页面提取发布日期
-async function fetchArticleDate(url) {
+// customSelector: 自定义 CSS 选择器或正则模式，如 "#pubtime_baidu" 或 "em.date"
+async function fetchArticleDate(url, customSelector = null) {
   try {
     const response = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
@@ -142,6 +181,37 @@ async function fetchArticleDate(url) {
     if (!response.ok) return null;
 
     const html = await response.text();
+
+    // 0. 如果有自定义选择器，优先使用
+    if (customSelector) {
+      // 将 CSS 选择器转换为正则
+      const selectorPatterns = [];
+      if (customSelector.startsWith('#')) {
+        // ID 选择器: #pubtime_baidu -> <* id="pubtime_baidu">...</*>
+        const id = customSelector.slice(1);
+        selectorPatterns.push(new RegExp(`<[^>]*id="${id}"[^>]*>([^<]+)`, 'i'));
+      } else if (customSelector.startsWith('.')) {
+        // Class 选择器: .time -> <* class="...time...">...</*>
+        const cls = customSelector.slice(1);
+        selectorPatterns.push(new RegExp(`<[^>]*class="[^"]*${cls}[^"]*"[^>]*>([^<]+)`, 'gi'));
+      } else if (customSelector.includes(':')) {
+        // 标签.类选择器: em.date -> <em class="...date...">...</em>
+        const [tag, cls] = customSelector.split('.');
+        selectorPatterns.push(new RegExp(`<${tag}[^>]*class="[^"]*${cls}[^"]*"[^>]*>([^<]+)`, 'gi'));
+      } else {
+        // 普通标签选择器: em -> <em>...</em>
+        selectorPatterns.push(new RegExp(`<${customSelector}[^>]*>([^<]+)`, 'gi'));
+      }
+
+      for (const pattern of selectorPatterns) {
+        const match = html.match(pattern);
+        if (match) {
+          const dateText = match[1] || match[0];
+          const contextDate = extractDateFromContext(dateText.replace(/<[^>]*>/g, '').trim());
+          if (contextDate) return contextDate;
+        }
+      }
+    }
 
     // 1. 优先查找 meta 标签
     const metaPatterns = [
@@ -167,14 +237,27 @@ async function fetchArticleDate(url) {
       if (!isNaN(date.getTime())) return date.toISOString();
     }
 
-    // 3. 查找常见的日期 class 元素
+    // 3. 查找常见的日期 class 元素（扩展更多模式）
     const dateClassPatterns = [
+      // 通用模式
       /<[^>]*class="[^"]*(?:pub[-_]?date|publish[-_]?date|post[-_]?date|article[-_]?date|time|date)[^"]*"[^>]*>([^<]+)</gi,
       /<span[^>]*class="[^"]*time[^"]*"[^>]*>([^<]+)</gi,
+      // IT之家特有
+      /<span[^>]*id="pubtime_baidu"[^>]*>([^<]+)</i,
+      /<[^>]*class="[^"]*pubtime[^"]*"[^>]*>([^<]+)</gi,
+      // 数据中心世界 <em> 标签
+      /<em[^>]*>(\d{4}[-/]\d{1,2}[-/]\d{1,2}[^<]*)</gi,
+      // 更通用的日期模式（包含标准日期格式）
+      /<[^>]*class="[^"]*(?:info|meta|author)[^"]*"[^>]*>[^<]*(\d{4}[-/]\d{1,2}[-/]\d{1,2})[^<]*/gi,
+      // 创业邦等：author-date class 内嵌相对时间
+      /<div[^>]*class="[^"]*author-date[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
+      // 通用：查找包含 今天/昨天/前天 的 span
+      /<span[^>]*>[^<]*(?:今天|昨天|前天)\s+\d{1,2}:\d{2}[^<]*/gi,
     ];
 
     for (const pattern of dateClassPatterns) {
       let match;
+      pattern.lastIndex = 0; // 重置正则状态
       while ((match = pattern.exec(html)) !== null) {
         const dateText = match[1].trim();
         // 尝试解析相对时间
@@ -260,9 +343,9 @@ function calculateScore(title, tier) {
   };
 }
 
-// 获取数据源
+// 获取数据源（包含配置）
 const sourcesResult = await db.execute(`
-  SELECT s.id, s.name, s.url, s.industry_id, s.tier
+  SELECT s.id, s.name, s.url, s.industry_id, s.tier, s.config
   FROM sources s WHERE s.is_active = 1
 `);
 const sources = sourcesResult.rows;
@@ -296,7 +379,13 @@ for (const source of sources) {
       let publishDate = article.date;
       if (!publishDate) {
         process.stdout.write('📄');
-        publishDate = await fetchArticleDate(article.url);
+        // 解析数据源配置，获取自定义日期选择器
+        let config = {};
+        try {
+          config = typeof source.config === 'string' ? JSON.parse(source.config) : (source.config || {});
+        } catch { config = {}; }
+        const customSelector = config.dateSelector || null;
+        publishDate = await fetchArticleDate(article.url, customSelector);
         if (publishDate) fetched++;
       }
 
