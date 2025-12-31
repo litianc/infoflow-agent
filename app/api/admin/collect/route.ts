@@ -148,6 +148,13 @@ export async function POST(request: NextRequest) {
               finalIndustryId = source.industryId;
             }
 
+            // 日期提取：如果列表页没有日期，尝试从文章页获取
+            let publishDate = article.date;
+            if (!publishDate) {
+              publishDate = await fetchArticleDate(article.url);
+            }
+            publishDate = publishDate || new Date().toISOString();
+
             const scores = calculateScore(article, source.tier || 2);
             await db.insert(articles).values({
               id: articleId,
@@ -156,7 +163,7 @@ export async function POST(request: NextRequest) {
               title: article.title,
               url: article.url,
               urlHash,
-              publishDate: article.date || new Date().toISOString(),
+              publishDate,
               summary,
               score: scores.score,
               scoreRelevance: scores.scoreRelevance,
@@ -296,6 +303,48 @@ function extractDateFromUrl(url: string): string | null {
   return null;
 }
 
+// 解析相对时间（昨天、前天、X天前、X小时前）
+function parseRelativeTime(text: string): string | null {
+  const now = new Date();
+
+  if (/昨天/.test(text)) {
+    const date = new Date(now);
+    date.setDate(date.getDate() - 1);
+    return date.toISOString();
+  }
+
+  if (/前天/.test(text)) {
+    const date = new Date(now);
+    date.setDate(date.getDate() - 2);
+    return date.toISOString();
+  }
+
+  const daysAgo = text.match(/(\d+)\s*天前/);
+  if (daysAgo) {
+    const date = new Date(now);
+    date.setDate(date.getDate() - parseInt(daysAgo[1]));
+    return date.toISOString();
+  }
+
+  const hoursAgo = text.match(/(\d+)\s*小时前/);
+  if (hoursAgo) {
+    const date = new Date(now);
+    date.setHours(date.getHours() - parseInt(hoursAgo[1]));
+    return date.toISOString();
+  }
+
+  const minutesAgo = text.match(/(\d+)\s*分钟前/);
+  if (minutesAgo) {
+    return now.toISOString();
+  }
+
+  if (/刚刚|今天/.test(text)) {
+    return now.toISOString();
+  }
+
+  return null;
+}
+
 // 日期提取正则（用于 HTML 上下文）
 const DATE_PATTERNS = [
   /(\d{4})[-/](\d{1,2})[-/](\d{1,2})/,
@@ -308,6 +357,10 @@ const DATE_PATTERNS = [
 function extractDateFromContext(text: string): string | null {
   const now = new Date();
   const currentYear = now.getFullYear();
+
+  // 先尝试相对时间
+  const relativeDate = parseRelativeTime(text);
+  if (relativeDate) return relativeDate;
 
   for (const pattern of DATE_PATTERNS) {
     const match = text.match(pattern);
@@ -341,6 +394,73 @@ function extractDateFromContext(text: string): string | null {
     }
   }
   return null;
+}
+
+// 从文章页面提取发布日期（方案四）
+async function fetchArticleDate(url: string): Promise<string | null> {
+  try {
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) return null;
+
+    const html = await response.text();
+
+    // 1. 优先查找 meta 标签
+    const metaPatterns = [
+      /<meta[^>]*property="article:published_time"[^>]*content="([^"]+)"/i,
+      /<meta[^>]*name="pubdate"[^>]*content="([^"]+)"/i,
+      /<meta[^>]*name="publishdate"[^>]*content="([^"]+)"/i,
+      /<meta[^>]*itemprop="datePublished"[^>]*content="([^"]+)"/i,
+      /<meta[^>]*name="og:published_time"[^>]*content="([^"]+)"/i,
+    ];
+
+    for (const pattern of metaPatterns) {
+      const match = html.match(pattern);
+      if (match) {
+        const date = new Date(match[1]);
+        if (!isNaN(date.getTime())) return date.toISOString();
+      }
+    }
+
+    // 2. 查找 time 标签
+    const timeMatch = html.match(/<time[^>]*datetime="([^"]+)"[^>]*>/i);
+    if (timeMatch) {
+      const date = new Date(timeMatch[1]);
+      if (!isNaN(date.getTime())) return date.toISOString();
+    }
+
+    // 3. 查找常见的日期 class 元素
+    const dateClassPatterns = [
+      /<[^>]*class="[^"]*(?:pub[-_]?date|publish[-_]?date|post[-_]?date|article[-_]?date|time|date)[^"]*"[^>]*>([^<]+)</gi,
+      /<span[^>]*class="[^"]*time[^"]*"[^>]*>([^<]+)</gi,
+    ];
+
+    for (const pattern of dateClassPatterns) {
+      let match;
+      while ((match = pattern.exec(html)) !== null) {
+        const dateText = match[1].trim();
+        const relativeDate = parseRelativeTime(dateText);
+        if (relativeDate) return relativeDate;
+        const contextDate = extractDateFromContext(dateText);
+        if (contextDate) return contextDate;
+      }
+    }
+
+    // 4. 在页面正文中查找日期
+    const bodyMatch = html.match(/<article[^>]*>([\s\S]*?)<\/article>/i) ||
+                      html.match(/<div[^>]*class="[^"]*(?:content|article|post)[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+    if (bodyMatch) {
+      const bodyText = bodyMatch[1].replace(/<[^>]*>/g, ' ').substring(0, 1000);
+      const contextDate = extractDateFromContext(bodyText);
+      if (contextDate) return contextDate;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 // 从 HTML 中提取文章
