@@ -7,6 +7,7 @@ interface DetectedConfig {
   linkSelector: string;
   dateSelector: string | null;
   summarySelector: string | null;
+  rssUrl: string | null;
 }
 
 interface PreviewArticle {
@@ -132,8 +133,11 @@ export async function POST(request: NextRequest) {
 
     const html = await response.text();
 
+    // 检测 RSS Feed
+    const rssUrl = await detectRSSFeed(html, parsedUrl.origin);
+
     // 使用简单的正则解析（生产环境建议使用 cheerio 或 JSDOM）
-    const result = analyzeHtmlStructure(html, parsedUrl.origin);
+    const result = analyzeHtmlStructure(html, parsedUrl.origin, rssUrl);
 
     if (!result.success) {
       return NextResponse.json(
@@ -173,10 +177,65 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// 检测 RSS Feed
+async function detectRSSFeed(html: string, origin: string): Promise<string | null> {
+  // 1. 从页面 <link> 标签检测
+  const linkPatterns = [
+    /<link[^>]*type=["']application\/rss\+xml["'][^>]*href=["']([^"']+)["']/gi,
+    /<link[^>]*type=["']application\/atom\+xml["'][^>]*href=["']([^"']+)["']/gi,
+    /<link[^>]*href=["']([^"']+)["'][^>]*type=["']application\/rss\+xml["']/gi,
+    /<link[^>]*href=["']([^"']+)["'][^>]*type=["']application\/atom\+xml["']/gi,
+  ];
+
+  for (const pattern of linkPatterns) {
+    const match = pattern.exec(html);
+    if (match) {
+      let rssUrl = match[1];
+      if (rssUrl.startsWith('/')) {
+        rssUrl = origin + rssUrl;
+      } else if (!rssUrl.startsWith('http')) {
+        rssUrl = origin + '/' + rssUrl;
+      }
+      // 验证 RSS URL 是否可访问
+      if (await verifyRSSUrl(rssUrl)) {
+        return rssUrl;
+      }
+    }
+  }
+
+  // 2. 尝试常见的 RSS 路径
+  const commonPaths = ['/rss', '/feed', '/rss.xml', '/feed.xml', '/atom.xml', '/rss/'];
+  for (const path of commonPaths) {
+    const rssUrl = origin + path;
+    if (await verifyRSSUrl(rssUrl)) {
+      return rssUrl;
+    }
+  }
+
+  return null;
+}
+
+// 验证 RSS URL 是否有效
+async function verifyRSSUrl(url: string): Promise<boolean> {
+  try {
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; RSSChecker/1.0)' },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return false;
+    const text = await response.text();
+    // 检查是否包含 RSS/Atom 标签
+    return text.includes('<rss') || text.includes('<feed') || text.includes('<channel>');
+  } catch {
+    return false;
+  }
+}
+
 // 分析 HTML 结构
 function analyzeHtmlStructure(
   html: string,
-  baseUrl: string
+  baseUrl: string,
+  rssUrl: string | null = null
 ): {
   success: boolean;
   confidence: number;
@@ -255,7 +314,13 @@ function analyzeHtmlStructure(
     linkSelector: 'a[href]',
     dateSelector: 'time, .date, .time, [class*="date"]',
     summarySelector: '.summary, .excerpt, .description, p',
+    rssUrl,
   };
+
+  // 如果检测到 RSS，提高置信度
+  if (rssUrl) {
+    confidence += 0.15;
+  }
 
   return {
     success: true,

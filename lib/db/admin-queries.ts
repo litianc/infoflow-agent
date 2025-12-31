@@ -132,6 +132,17 @@ export async function getAllSources() {
   );
 }
 
+// 获取单个数据源
+export async function getSourceById(id: string) {
+  const result = await db
+    .select()
+    .from(sources)
+    .where(eq(sources.id, id))
+    .limit(1);
+
+  return result[0] || null;
+}
+
 // 获取所有行业（管理用）
 export async function getAllIndustries() {
   return db

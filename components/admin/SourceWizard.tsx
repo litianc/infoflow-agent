@@ -41,6 +41,7 @@ interface DetectedConfig {
   linkSelector: string;
   dateSelector: string | null;
   summarySelector: string | null;
+  rssUrl: string | null;
 }
 
 interface SourceWizardProps {
@@ -68,6 +69,7 @@ export function SourceWizard({ industries }: SourceWizardProps) {
   const [name, setName] = useState('');
   const [industryId, setIndustryId] = useState('');
   const [tier, setTier] = useState('2');
+  const [rssUrl, setRssUrl] = useState('');
 
   // Step 1: Auto-detect URL
   const handleDetect = async () => {
@@ -92,6 +94,11 @@ export function SourceWizard({ industries }: SourceWizardProps) {
         setConfidence(data.confidence);
         setSelectedArticles(new Set(data.preview?.map((_: PreviewArticle, i: number) => i) || []));
 
+        // 设置检测到的 RSS URL
+        if (data.config?.rssUrl) {
+          setRssUrl(data.config.rssUrl);
+        }
+
         // Auto-fill name from URL
         try {
           const urlObj = new URL(url);
@@ -101,7 +108,8 @@ export function SourceWizard({ industries }: SourceWizardProps) {
         }
 
         setStep('preview');
-        toast.success(`成功识别到 ${data.preview?.length || 0} 篇文章`);
+        const rssNote = data.config?.rssUrl ? '，检测到 RSS Feed' : '';
+        toast.success(`成功识别到 ${data.preview?.length || 0} 篇文章${rssNote}`);
       } else {
         toast.error(data.error?.message || '识别失败');
       }
@@ -136,6 +144,12 @@ export function SourceWizard({ industries }: SourceWizardProps) {
 
     setIsSaving(true);
     try {
+      // 合并 rssUrl 到配置中
+      const finalConfig = {
+        ...detectedConfig,
+        rssUrl: rssUrl.trim() || null,
+      };
+
       const response = await fetch('/api/admin/sources', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -144,7 +158,7 @@ export function SourceWizard({ industries }: SourceWizardProps) {
           url,
           industryId,
           tier: parseInt(tier),
-          config: detectedConfig,
+          config: finalConfig,
         }),
       });
 
@@ -360,6 +374,23 @@ export function SourceWizard({ industries }: SourceWizardProps) {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="rssUrl">
+                RSS Feed URL
+                {rssUrl && <Badge variant="secondary" className="ml-2">已检测</Badge>}
+              </Label>
+              <Input
+                id="rssUrl"
+                type="url"
+                placeholder="https://example.com/rss（可选，优先使用 RSS 采集）"
+                value={rssUrl}
+                onChange={(e) => setRssUrl(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                配置 RSS Feed 可提高采集质量和日期准确性
+              </p>
             </div>
 
             <div className="flex justify-between pt-4">
